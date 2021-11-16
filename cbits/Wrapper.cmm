@@ -1,0 +1,54 @@
+#include <Cmm.h>
+#include "Errors.h"
+
+STRING(debugval, "debugval %d")
+
+stg_tryPack (gcptr original, gcptr buffer)
+{
+    // args: closure (graph root to serialize)
+    //       buffer (MutableByteArray to pack into)
+    W_ errCode;
+    W_ size;
+
+    MAYBE_GC_PP(stg_tryPack, original, buffer);
+
+    // assign something to keep cmm reg.allocator happy
+    errCode = P_SUCCESS;
+
+    // call packing function (without giving the TSO, no blocking)
+    (size) = ccall pmtryPackToBuffer(original "ptr", buffer "ptr");
+    // small values indicate failure (size biased with P_ERRCODEMAX,
+    // see Errors.h and Pack.c
+    // NB seems Cmm always compares unsigned (wanted to use negative values here)
+    if (size < P_ERRCODEMAX ) {
+        errCode = size;
+        size = 0;
+    } else {
+        size = size - P_ERRCODEMAX;
+    }
+    
+    return (errCode, size);
+}
+
+stg_unpack (gcptr buff)
+{
+    // args: R1 ByteArray# containing a serialized subgraph
+    W_ new;
+    W_ errCode;
+
+    // assign something to keep cmm reg.allocator happy
+    new = ghczmprim_GHCziTypes_False_closure;
+    errCode = P_SUCCESS;
+
+    MAYBE_GC_P(stg_unpack, buff);
+
+    // call packing function
+    ("ptr" new) = ccall pmUnpackGraphWrapper(buff "ptr", MyCapability() "ptr");
+
+    if (new <= P_ERRCODEMAX) {
+        errCode = new;
+        new = ghczmprim_GHCziTypes_False_closure;
+    }
+
+    return (errCode, new);
+}
